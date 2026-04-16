@@ -274,3 +274,72 @@ This project demonstrates:
 The goal was not to build the most complex system, but a **clean, working, and well-reasoned one**.
 
 ---
+
+## Limitations & Practical Considerations
+
+### LLM Quotas
+
+This project uses a free-tier LLM provider (Gemini API).
+As such, it may encounter rate limits or quota exhaustion during usage.
+
+To address this, the system is designed to:
+
+* minimize LLM calls by prioritizing deterministic tools
+* keep prompts concise
+* limit the number of agent steps per query
+
+---
+
+### Graceful Degradation
+
+If the LLM provider is unavailable (e.g., quota exceeded or network issues),
+the system can still return a **partial answer** based on locally extracted data.
+
+In such cases:
+
+* answers are marked with lower confidence
+* results rely only on deterministic tools
+
+This ensures the application remains functional even under API constraints.
+
+---
+
+### Scope Tradeoffs
+
+To keep the implementation focused and within the expected time constraints (2–3 hours),
+the following were intentionally simplified or omitted:
+
+* No vector database / embeddings
+* No long-term memory between sessions
+* Heuristic-based routing instead of advanced planning
+* Limited optimization for very large documents
+
+These tradeoffs prioritize:
+
+* clarity of the agent loop
+* correctness of structured data handling
+* maintainability and readability
+
+---
+
+### Future Improvements
+
+If extended further, the system could include:
+
+* smarter planning to reduce tool calls
+* feedback/correction loop from users
+* better ambiguity handling
+* streaming responses
+* vector search for large-scale document sets
+
+---
+
+## Final Note
+
+This project focuses on demonstrating:
+
+* building an agent loop from first principles
+* integrating LLMs into real workflows
+* making pragmatic engineering tradeoffs under constraints
+
+Rather than maximizing complexity, the goal was to build a **clean, working, and explainable system**.
