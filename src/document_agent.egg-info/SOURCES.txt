@@ -1,0 +1,16 @@
+README.md
+pyproject.toml
+src/document_agent/__init__.py
+src/document_agent/agent.py
+src/document_agent/cli.py
+src/document_agent/llm.py
+src/document_agent/server.py
+src/document_agent/tools.py
+src/document_agent.egg-info/PKG-INFO
+src/document_agent.egg-info/SOURCES.txt
+src/document_agent.egg-info/dependency_links.txt
+src/document_agent.egg-info/requires.txt
+src/document_agent.egg-info/top_level.txt
+tests/test_agent_loop.py
+tests/test_server_api.py
+tests/test_tools.py

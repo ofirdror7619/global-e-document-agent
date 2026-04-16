@@ -1,0 +1,12 @@
+node_modules/
+web/node_modules/
+web/.next/
+__pycache__/
+.env
+.env.local
+*.pyc
+dist/
+build/
+.agent_sessions/
+.DS_Store
+Thumbs.db

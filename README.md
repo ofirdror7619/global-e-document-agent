@@ -1,0 +1,116 @@
+﻿# Document Agent
+
+A custom tool-calling document agent with both a Python backend and a Next.js UI.
+Users can upload files, ask natural-language questions, and get answers from an LLM-driven agent loop that decides which tools to use.
+
+## What I Built
+
+- Custom agent loop (no LangChain/CrewAI/AutoGen/Semantic Kernel):
+  - Model decides next action
+  - App executes tool calls
+  - Tool outputs are sent back to the model
+  - Loop continues until final answer
+- Python API server for session-based uploads + questions
+- Next.js UI for:
+  - creating a session
+  - uploading files
+  - asking questions
+  - viewing answer + agent trace
+- CLI still available for terminal usage
+- Tests for tools, loop behavior, and API endpoints
+
+
+## Tech Stack
+
+- Backend: Python 3.10+, FastAPI
+- LLM API: OpenAI Chat Completions API (`openai` SDK)
+- Frontend: Next.js 14 + React + TypeScript
+- Tests: pytest
+
+## Project Structure
+
+- `src/document_agent/agent.py`: custom agent loop
+- `src/document_agent/tools.py`: tool implementations
+- `src/document_agent/server.py`: FastAPI endpoints
+- `src/document_agent/cli.py`: terminal UI
+- `web/`: Next.js UI
+
+## Setup
+
+1. Create and activate a Python virtual environment.
+2. Install Python dependencies:
+
+```bash
+pip install -e ".[dev]"
+```
+
+3. Set API key:
+
+place openAI-key in src/config/config.json
+
+4. Install UI dependencies:
+
+```bash
+cd web
+npm install
+```
+
+## Run
+
+1. Start backend (repo root):
+
+```bash
+uvicorn document_agent.server:app --reload --port 8000
+```
+
+2. Start frontend (new terminal):
+
+```bash
+cd web
+npm run dev
+```
+
+3. Open `http://localhost:3000`
+
+Optional UI env var:
+
+```bash
+# web/.env.local
+NEXT_PUBLIC_AGENT_API_URL=http://localhost:8000
+```
+
+If omitted, UI defaults to `http://localhost:8000`.
+
+## CLI (Optional)
+
+```bash
+python -m document_agent.cli --show-trace
+```
+
+## API Endpoints
+
+- `POST /sessions` -> create session
+- `POST /sessions/{session_id}/upload` -> upload one file
+- `GET /sessions/{session_id}/files` -> list uploaded files
+- `POST /ask` -> ask a question against that session's files
+
+## Test
+
+From repo root:
+
+```bash
+pytest
+```
+
+## Design Decisions
+
+- Kept agent logic independent from interface layer (CLI/UI/API).
+- Used session-scoped folders (`.agent_sessions/`) to isolate user uploads.
+- Extended structured tools to support dynamic filenames so uploaded docs work with the same logic.
+- Included trace output to make agent behavior observable.
+
+## AI Coding Tools Used
+
+- OpenAI Codex (this implementation session)
+- Manual local testing in terminal
+- ChatGPT for code gen AI
