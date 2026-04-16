@@ -4,10 +4,12 @@ from fastapi.testclient import TestClient
 
 import document_agent.server as server
 from document_agent.agent import AgentResult, AgentTraceStep
+from document_agent.llm import ProviderRateLimitError
 
 
 def test_session_upload_and_list(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(server, "SESSIONS_ROOT", tmp_path)
+    monkeypatch.setattr(server, "ASK_CACHE", {})
     client = TestClient(server.app)
 
     create = client.post("/sessions")
@@ -28,14 +30,15 @@ def test_session_upload_and_list(tmp_path: Path, monkeypatch) -> None:
 
 def test_ask_endpoint_with_mocked_agent(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(server, "SESSIONS_ROOT", tmp_path)
+    monkeypatch.setattr(server, "ASK_CACHE", {})
 
     class FakeLLM:
         def __init__(self, model: str) -> None:
             _ = model
 
     class FakeAgent:
-        def __init__(self, llm, documents_dir) -> None:
-            _ = (llm, documents_dir)
+        def __init__(self, llm, documents_dir, max_steps=4) -> None:
+            _ = (llm, documents_dir, max_steps)
 
         def ask(self, question: str) -> AgentResult:
             _ = question
@@ -60,6 +63,7 @@ def test_ask_endpoint_with_mocked_agent(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_cors_preflight_allows_localhost_3000() -> None:
+    server.ASK_CACHE.clear()
     client = TestClient(server.app)
     res = client.options(
         "/ask",
@@ -75,14 +79,15 @@ def test_cors_preflight_allows_localhost_3000() -> None:
 
 def test_ask_endpoint_surfaces_agent_error(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(server, "SESSIONS_ROOT", tmp_path)
+    monkeypatch.setattr(server, "ASK_CACHE", {})
 
     class FakeLLM:
         def __init__(self, model: str) -> None:
             _ = model
 
     class BrokenAgent:
-        def __init__(self, llm, documents_dir) -> None:
-            _ = (llm, documents_dir)
+        def __init__(self, llm, documents_dir, max_steps=4) -> None:
+            _ = (llm, documents_dir, max_steps)
 
         def ask(self, question: str):
             _ = question
@@ -99,3 +104,113 @@ def test_ask_endpoint_surfaces_agent_error(tmp_path: Path, monkeypatch) -> None:
     res = client.post("/ask", json={"session_id": session_id, "question": "hi"})
     assert res.status_code == 500
     assert "Agent execution failed: boom" in res.text
+
+
+def test_ask_endpoint_rate_limit_surfaces_429(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(server, "SESSIONS_ROOT", tmp_path)
+    monkeypatch.setattr(server, "ASK_CACHE", {})
+
+    class FakeLLM:
+        def __init__(self, model: str) -> None:
+            _ = model
+
+    class RateLimitedAgent:
+        def __init__(self, llm, documents_dir, max_steps=4) -> None:
+            _ = (llm, documents_dir, max_steps)
+
+        def ask(self, question: str):
+            _ = question
+            raise ProviderRateLimitError("quota exceeded")
+
+    monkeypatch.setattr(server, "GeminiChatLLM", FakeLLM)
+    monkeypatch.setattr(server, "DocumentAgent", RateLimitedAgent)
+    client = TestClient(server.app)
+
+    session_id = client.post("/sessions").json()["session_id"]
+    client.post(
+        f"/sessions/{session_id}/upload",
+        files={"file": ("config.json", b'{"x":1}', "application/json")},
+    )
+    res = client.post("/ask", json={"session_id": session_id, "question": "hi"})
+    assert res.status_code == 429
+    assert "Gemini quota/rate limit exceeded" in res.text
+
+
+def test_ask_endpoint_defaults_to_fresh_without_cache(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(server, "SESSIONS_ROOT", tmp_path)
+    monkeypatch.setattr(server, "ASK_CACHE", {})
+
+    class FakeLLM:
+        def __init__(self, model: str) -> None:
+            _ = model
+
+    class CountingAgent:
+        calls = 0
+
+        def __init__(self, llm, documents_dir, max_steps=4) -> None:
+            _ = (llm, documents_dir, max_steps)
+
+        def ask(self, question: str) -> AgentResult:
+            _ = question
+            CountingAgent.calls += 1
+            return AgentResult(answer="fresh answer", trace=[AgentTraceStep(step=1, action="final_answer", detail="fresh")])
+
+    monkeypatch.setattr(server, "GeminiChatLLM", FakeLLM)
+    monkeypatch.setattr(server, "DocumentAgent", CountingAgent)
+    client = TestClient(server.app)
+
+    session_id = client.post("/sessions").json()["session_id"]
+    client.post(
+        f"/sessions/{session_id}/upload",
+        files={"file": ("config.json", b'{"x":1}', "application/json")},
+    )
+    first = client.post("/ask", json={"session_id": session_id, "question": "hi"})
+    second = client.post("/ask", json={"session_id": session_id, "question": "hi"})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["response_source"] == "fresh"
+    assert second.json()["response_source"] == "fresh"
+    assert CountingAgent.calls == 2
+
+
+def test_ask_endpoint_uses_cache_when_requested(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(server, "SESSIONS_ROOT", tmp_path)
+    monkeypatch.setattr(server, "ASK_CACHE", {})
+
+    class FakeLLM:
+        def __init__(self, model: str) -> None:
+            _ = model
+
+    class CountingAgent:
+        calls = 0
+
+        def __init__(self, llm, documents_dir, max_steps=4) -> None:
+            _ = (llm, documents_dir, max_steps)
+
+        def ask(self, question: str) -> AgentResult:
+            _ = question
+            CountingAgent.calls += 1
+            return AgentResult(
+                answer="cached-enabled answer",
+                trace=[AgentTraceStep(step=1, action="final_answer", detail="cached-enabled")],
+            )
+
+    monkeypatch.setattr(server, "GeminiChatLLM", FakeLLM)
+    monkeypatch.setattr(server, "DocumentAgent", CountingAgent)
+    client = TestClient(server.app)
+
+    session_id = client.post("/sessions").json()["session_id"]
+    client.post(
+        f"/sessions/{session_id}/upload",
+        files={"file": ("config.json", b'{"x":1}', "application/json")},
+    )
+    first = client.post("/ask", json={"session_id": session_id, "question": "hi", "use_cache": True})
+    second = client.post("/ask", json={"session_id": session_id, "question": "hi", "use_cache": True})
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["response_source"] == "fresh"
+    assert second.json()["response_source"] == "cached"
+    assert second.json()["cached_at"] is not None
+    assert CountingAgent.calls == 1

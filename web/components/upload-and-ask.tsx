@@ -4,10 +4,51 @@ import { useMemo, useState } from "react";
 
 type AskResponse = {
   answer: string;
-  trace: Array<{ step: string; action: string; detail: string }>;
+  response_source?: "fresh" | "cached";
+  generated_at?: string;
+  cached_at?: string | null;
+};
+
+type ParsedAnswer = {
+  answer: string;
 };
 
 const API_BASE = process.env.NEXT_PUBLIC_AGENT_API_URL ?? "/api";
+
+function parseAnswerSections(rawAnswer: string): ParsedAnswer {
+  const raw = rawAnswer.trim();
+  if (!raw) {
+    return { answer: "" };
+  }
+
+  const reasoningMarker = "Cost Efficiency Reasoning:";
+  const fallbackMarker = "Evidence summary:";
+  const markerIndex = raw.includes(reasoningMarker)
+    ? raw.indexOf(reasoningMarker)
+    : raw.indexOf(fallbackMarker);
+  if (markerIndex === -1) {
+    return { answer: raw };
+  }
+
+  const primary = raw.slice(0, markerIndex).trim();
+  const cleanedPrimary = primary
+    .replace(/^Answer:\s*/m, "")
+    .replace(/^Draft answer generated from deterministic tools only\.\s*/m, "")
+    .replace(/^Question:\s*.*$/m, "")
+    .trim();
+
+  const isQuotaFallback =
+    raw.includes("LLM synthesis was skipped due to quota or provider limitations.") ||
+    raw.includes("fallback_local_only");
+
+  const answer =
+    cleanedPrimary ||
+    (isQuotaFallback
+      ? "Gemini synthesis was unavailable for this request. See Cost Efficiency Reasoning below."
+      : "See Cost Efficiency Reasoning below.");
+
+  return { answer };
+}
 
 export function UploadAndAsk() {
   const [sessionId, setSessionId] = useState<string>("");
@@ -15,9 +56,12 @@ export function UploadAndAsk() {
   const [uploaded, setUploaded] = useState<string[]>([]);
   const [question, setQuestion] = useState<string>("");
   const [answer, setAnswer] = useState<string>("");
-  const [trace, setTrace] = useState<string>("");
+  const [answerSource, setAnswerSource] = useState<"fresh" | "cached" | "">("");
+  const [cachedAt, setCachedAt] = useState<string>("");
+  const [useCache, setUseCache] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
+  const parsedAnswer = useMemo(() => parseAnswerSections(answer), [answer]);
 
   const canUpload = useMemo(() => !!sessionId && !!files?.length, [sessionId, files]);
   const canAsk = useMemo(() => !!sessionId && !!question.trim(), [sessionId, question]);
@@ -32,7 +76,8 @@ export function UploadAndAsk() {
       setSessionId(data.session_id);
       setUploaded([]);
       setAnswer("");
-      setTrace("");
+      setAnswerSource("");
+      setCachedAt("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -69,12 +114,20 @@ export function UploadAndAsk() {
   async function askQuestion() {
     if (!sessionId || !question.trim()) return;
     setError("");
+    setAnswer("");
+    setAnswerSource("");
+    setCachedAt("");
     setBusy(true);
     try {
       const res = await fetch(`${API_BASE}/ask`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionId, question }),
+        body: JSON.stringify({
+          session_id: sessionId,
+          question,
+          use_cache: useCache,
+          force_refresh: !useCache,
+        }),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -82,12 +135,24 @@ export function UploadAndAsk() {
       }
       const data = (await res.json()) as AskResponse;
       setAnswer(data.answer);
-      setTrace(data.trace.map((t) => `[${t.step}] ${t.action}\n${t.detail}`).join("\n\n"));
+      const source = data.response_source === "cached" ? "cached" : "fresh";
+      setAnswerSource(source);
+      setCachedAt(source === "cached" ? data.cached_at ?? data.generated_at ?? "" : "");
     } catch (e) {
+      setAnswer("");
+      setAnswerSource("");
+      setCachedAt("");
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
       setBusy(false);
     }
+  }
+
+  function formatCachedAt(value: string): string {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString();
   }
 
   return (
@@ -125,6 +190,16 @@ export function UploadAndAsk() {
           onChange={(e) => setQuestion(e.target.value)}
           placeholder="Example: Did anyone mention Q1 sales in emails, and how does it compare to CSV?"
         />
+        <div className="stack-row cache-toggle-row">
+          <label className="cache-toggle-label">
+            <input
+              type="checkbox"
+              checked={useCache}
+              onChange={(e) => setUseCache(e.target.checked)}
+            />
+            Use cache
+          </label>
+        </div>
         <div className="stack-row">
           <button onClick={askQuestion} disabled={!canAsk || busy}>
             {busy && <span className="swirl-icon swirl-busy" aria-hidden />}
@@ -142,17 +217,19 @@ export function UploadAndAsk() {
 
       {!!answer && (
         <section className="card answer-card">
-          <h3>Answer</h3>
-          <div className="answer">{answer}</div>
+          <div className="card-head">
+            <h3>Answer</h3>
+            {answerSource === "fresh" && <span className="status-chip source-chip source-fresh">Fresh</span>}
+            {answerSource === "cached" && (
+              <span className="status-chip source-chip source-cached">
+                Cached{cachedAt ? ` (${formatCachedAt(cachedAt)})` : ""}
+              </span>
+            )}
+          </div>
+          <div className="answer">{parsedAnswer.answer}</div>
         </section>
       )}
 
-      {!!trace && (
-        <section className="card">
-          <h3>Agent Trace</h3>
-          <div className="trace">{trace}</div>
-        </section>
-      )}
     </>
   );
 }

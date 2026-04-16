@@ -19,27 +19,12 @@ class ScriptedLLM:
         return response
 
 
-def test_agent_calls_tool_then_returns_final_answer() -> None:
+def test_agent_uses_local_tools_then_single_synthesis_call() -> None:
     llm = ScriptedLLM(
         responses=[
             {
                 "role": "assistant",
-                "content": "",
-                "tool_calls": [
-                    {
-                        "id": "call_1",
-                        "type": "function",
-                        "function": {
-                            "name": "read_config_value",
-                            "arguments": json.dumps({"path": "database.primary.pool.max"}),
-                        },
-                    }
-                ],
-            },
-            {
-                "role": "assistant",
                 "content": "The primary DB pool max is 50.\nConfidence: high",
-                "tool_calls": [],
             },
         ]
     )
@@ -48,6 +33,19 @@ def test_agent_calls_tool_then_returns_final_answer() -> None:
     result = agent.ask("What is the DB pool max?")
 
     assert "50" in result.answer
-    assert any(step.action == "tool:read_config_value" for step in result.trace)
+    assert llm.calls == 1
+    assert any(step.action == "tool:search_documents" for step in result.trace)
+    assert any(step.action == "tool:read_document" for step in result.trace)
     assert any(step.action == "final_answer" for step in result.trace)
 
+
+def test_agent_fallback_without_llm_content() -> None:
+    llm = ScriptedLLM(
+        responses=[
+            {"role": "assistant", "content": ""},
+        ]
+    )
+    agent = DocumentAgent(llm=llm, documents_dir=Path("documents"), max_steps=2)
+    result = agent.ask("Are there config issues?")
+    assert "deterministic tools only" in result.answer
+    assert any(step.action == "final_answer" for step in result.trace)

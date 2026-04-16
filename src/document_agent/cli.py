@@ -20,12 +20,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Show agent tool trace after each answer",
     )
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=4,
+        help="Maximum local tool steps per question",
+    )
     return parser
 
 
-def run_repl(model: str, documents_dir: str, show_trace: bool) -> None:
+def run_repl(model: str, documents_dir: str, show_trace: bool, max_steps: int) -> None:
     llm = GeminiChatLLM(model=model)
-    agent = DocumentAgent(llm=llm, documents_dir=Path(documents_dir))
+    agent = DocumentAgent(llm=llm, documents_dir=Path(documents_dir), max_steps=max_steps)
 
     print("Document Agent ready. Type your question, or 'exit' to quit.")
     while True:
@@ -48,7 +54,12 @@ def run_repl(model: str, documents_dir: str, show_trace: bool) -> None:
 
 def main() -> None:
     args = build_parser().parse_args()
-    run_repl(model=args.model, documents_dir=args.documents_dir, show_trace=args.show_trace)
+    run_repl(
+        model=args.model,
+        documents_dir=args.documents_dir,
+        show_trace=args.show_trace,
+        max_steps=args.max_steps,
+    )
 
 
 if __name__ == "__main__":

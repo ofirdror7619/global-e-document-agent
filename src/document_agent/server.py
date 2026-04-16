@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import hashlib
+import os
 import shutil
 import uuid
-import os
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +23,7 @@ from .llm import (
 
 SESSIONS_ROOT = Path(".agent_sessions")
 SESSIONS_ROOT.mkdir(parents=True, exist_ok=True)
+ASK_CACHE: dict[str, AskResponse] = {}
 
 
 class CreateSessionResponse(BaseModel):
@@ -30,17 +34,35 @@ class AskRequest(BaseModel):
     session_id: str = Field(min_length=1)
     question: str = Field(min_length=1)
     model: str = "gemini-2.5-flash-lite"
+    use_cache: bool = False
+    force_refresh: bool = False
 
 
 class AskResponse(BaseModel):
     answer: str
     trace: list[dict[str, str]]
+    response_source: Literal["fresh", "cached"]
+    generated_at: str
+    cached_at: str | None = None
 
 
 def _session_dir(session_id: str) -> Path:
     if "/" in session_id or "\\" in session_id or ".." in session_id:
         raise HTTPException(status_code=400, detail="Invalid session id")
     return (SESSIONS_ROOT / session_id).resolve()
+
+
+def _normalized_question(question: str) -> str:
+    return " ".join(question.strip().lower().split())
+
+
+def _session_files_hash(path: Path) -> str:
+    parts: list[str] = []
+    for file_path in sorted(p for p in path.glob("*") if p.is_file()):
+        stat = file_path.stat()
+        parts.append(f"{file_path.name}:{int(stat.st_mtime)}:{stat.st_size}")
+    raw = "|".join(parts).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
 
 
 app = FastAPI(title="Document Agent API", version="0.2.0")
@@ -106,17 +128,31 @@ def ask_question(payload: AskRequest) -> AskResponse:
     if not any(path.glob("*")):
         raise HTTPException(status_code=400, detail="Upload at least one document first")
 
+    files_hash = _session_files_hash(path)
+    cache_key = f"{payload.session_id}|{_normalized_question(payload.question)}|{files_hash}"
+    should_use_cache = payload.use_cache and not payload.force_refresh
+    if should_use_cache:
+        cached = ASK_CACHE.get(cache_key)
+        if cached:
+            return AskResponse(
+                answer=cached.answer,
+                trace=cached.trace,
+                response_source="cached",
+                generated_at=cached.generated_at,
+                cached_at=cached.generated_at,
+            )
+
     try:
         llm = GeminiChatLLM(model=payload.model)
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    agent = DocumentAgent(llm=llm, documents_dir=path)
+    agent = DocumentAgent(llm=llm, documents_dir=path, max_steps=4)
     try:
         result = agent.ask(payload.question)
     except ProviderRateLimitError as exc:
         raise HTTPException(
             status_code=429,
-            detail=f"Gemini quota/rate limit issue: {exc}",
+            detail=f"Gemini quota/rate limit exceeded: {exc}",
         ) from exc
     except ProviderAuthError as exc:
         raise HTTPException(
@@ -138,5 +174,15 @@ def ask_question(payload: AskRequest) -> AskResponse:
             status_code=500,
             detail=f"Agent execution failed: {exc}",
         ) from exc
+
     trace = [{"step": str(t.step), "action": t.action, "detail": t.detail} for t in result.trace]
-    return AskResponse(answer=result.answer, trace=trace)
+    generated_at = datetime.now(timezone.utc).isoformat()
+    response = AskResponse(
+        answer=result.answer,
+        trace=trace,
+        response_source="fresh",
+        generated_at=generated_at,
+        cached_at=None,
+    )
+    ASK_CACHE[cache_key] = response
+    return response
