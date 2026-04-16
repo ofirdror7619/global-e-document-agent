@@ -4,9 +4,12 @@ import { useMemo, useState } from "react";
 
 type AskResponse = {
   answer: string;
+  trace?: Array<{ step: string; action: string; detail: string }>;
   response_source?: "fresh" | "cached";
   generated_at?: string;
   cached_at?: string | null;
+  mode?: "gemini" | "no-llm-fallback";
+  confidence?: "high" | "medium" | "low";
 };
 
 type ParsedAnswer = {
@@ -44,8 +47,8 @@ function parseAnswerSections(rawAnswer: string): ParsedAnswer {
   const answer =
     cleanedPrimary ||
     (isQuotaFallback
-      ? "Gemini synthesis was unavailable for this request. See Cost Efficiency Reasoning below."
-      : "See Cost Efficiency Reasoning below.");
+      ? "Gemini synthesis was unavailable for this request."
+      : "No synthesized answer returned.");
 
   return { answer };
 }
@@ -58,6 +61,9 @@ export function UploadAndAsk() {
   const [answer, setAnswer] = useState<string>("");
   const [answerSource, setAnswerSource] = useState<"fresh" | "cached" | "">("");
   const [cachedAt, setCachedAt] = useState<string>("");
+  const [mode, setMode] = useState<"gemini" | "no-llm-fallback" | "">("");
+  const [confidence, setConfidence] = useState<"high" | "medium" | "low" | "">("");
+  const [traceSteps, setTraceSteps] = useState<Array<{ step: string; action: string; detail: string }>>([]);
   const [useCache, setUseCache] = useState<boolean>(false);
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string>("");
@@ -78,6 +84,9 @@ export function UploadAndAsk() {
       setAnswer("");
       setAnswerSource("");
       setCachedAt("");
+      setMode("");
+      setConfidence("");
+      setTraceSteps([]);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -117,6 +126,9 @@ export function UploadAndAsk() {
     setAnswer("");
     setAnswerSource("");
     setCachedAt("");
+    setMode("");
+    setConfidence("");
+    setTraceSteps([]);
     setBusy(true);
     try {
       const res = await fetch(`${API_BASE}/ask`, {
@@ -138,10 +150,16 @@ export function UploadAndAsk() {
       const source = data.response_source === "cached" ? "cached" : "fresh";
       setAnswerSource(source);
       setCachedAt(source === "cached" ? data.cached_at ?? data.generated_at ?? "" : "");
+      setMode(data.mode ?? "gemini");
+      setConfidence(data.confidence ?? "medium");
+      setTraceSteps(data.trace ?? []);
     } catch (e) {
       setAnswer("");
       setAnswerSource("");
       setCachedAt("");
+      setMode("");
+      setConfidence("");
+      setTraceSteps([]);
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
       setBusy(false);
@@ -153,6 +171,59 @@ export function UploadAndAsk() {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleString();
+  }
+
+  function summarizeDetail(detail: string): string {
+    const compact = detail.replace(/\s+/g, " ").trim();
+    return compact.length > 120 ? `${compact.slice(0, 120)}...` : compact;
+  }
+
+  function summarizeTraceStep(action: string, detail: string): string {
+    let parsed: any = null;
+    try {
+      parsed = JSON.parse(detail);
+    } catch {
+      return summarizeDetail(detail);
+    }
+
+    if (!action.startsWith("tool:") || !parsed || typeof parsed !== "object") {
+      return summarizeDetail(detail);
+    }
+
+    const tool = action.replace("tool:", "");
+    const ok = Boolean(parsed.ok);
+    const result = parsed.result ?? {};
+
+    if (!ok) {
+      return `Failed: ${String(parsed.error ?? "unknown error")}`;
+    }
+
+    if (tool === "list_documents") {
+      const docs = Array.isArray(result.documents) ? result.documents : [];
+      return `Found ${docs.length} document(s).`;
+    }
+    if (tool === "search_documents") {
+      const hits = Array.isArray(result.hits) ? result.hits.length : 0;
+      const mode = result.match_mode ?? "unknown";
+      return `Search completed with ${hits} hit(s) using ${mode}.`;
+    }
+    if (tool === "read_document") {
+      const filename = result.filename ?? "document";
+      const lineCount = result.line_count ?? "?";
+      return `Read ${filename} (${lineCount} lines).`;
+    }
+    if (tool === "analyze_sales_csv") {
+      const rows = result.row_count ?? "?";
+      const revenue = result.total_revenue_usd ?? "?";
+      return `Analyzed CSV (${rows} rows), total revenue: ${revenue} USD.`;
+    }
+    if (tool === "scan_server_log") {
+      const matches = Array.isArray(result.matches) ? result.matches.length : 0;
+      const summary = result.summary ?? {};
+      return `Scanned logs: ${matches} match(es), errors=${summary.total_error ?? 0}, warnings=${summary.total_warn ?? 0}.`;
+    }
+
+    return summarizeDetail(detail);
   }
 
   return (
@@ -226,7 +297,31 @@ export function UploadAndAsk() {
               </span>
             )}
           </div>
+          <div className="stack-row answer-meta-row">
+            <span className={`status-chip mode-chip ${mode === "no-llm-fallback" ? "mode-fallback" : "mode-gemini"}`}>
+              {mode === "no-llm-fallback" ? "Mode: no-llm-fallback" : "Mode: gemini"}
+            </span>
+            {!!confidence && (
+              <span className="status-chip confidence-chip">Confidence: {confidence}</span>
+            )}
+          </div>
           <div className="answer">{parsedAnswer.answer}</div>
+        </section>
+      )}
+
+      {!!traceSteps.length && (
+        <section className="card">
+          <h3>Agent Steps</h3>
+          <div className="stack-row trace-list">
+            {traceSteps.map((step) => (
+              <div key={`${step.step}-${step.action}`} className="trace-item">
+                <div className="trace-title">
+                  {step.step}. {step.action}
+                </div>
+                <div className="trace-detail">{summarizeTraceStep(step.action, step.detail)}</div>
+              </div>
+            ))}
+          </div>
         </section>
       )}
 

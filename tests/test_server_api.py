@@ -106,7 +106,7 @@ def test_ask_endpoint_surfaces_agent_error(tmp_path: Path, monkeypatch) -> None:
     assert "Agent execution failed: boom" in res.text
 
 
-def test_ask_endpoint_rate_limit_surfaces_429(tmp_path: Path, monkeypatch) -> None:
+def test_ask_endpoint_rate_limit_returns_local_fallback(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(server, "SESSIONS_ROOT", tmp_path)
     monkeypatch.setattr(server, "ASK_CACHE", {})
 
@@ -122,6 +122,13 @@ def test_ask_endpoint_rate_limit_surfaces_429(tmp_path: Path, monkeypatch) -> No
             _ = question
             raise ProviderRateLimitError("quota exceeded")
 
+        def answer_with_local_evidence(self, question: str, reason: str | None = None) -> AgentResult:
+            _ = (question, reason)
+            return AgentResult(
+                answer="local fallback answer",
+                trace=[AgentTraceStep(step=1, action="fallback_local_only", detail="fallback")],
+            )
+
     monkeypatch.setattr(server, "GeminiChatLLM", FakeLLM)
     monkeypatch.setattr(server, "DocumentAgent", RateLimitedAgent)
     client = TestClient(server.app)
@@ -132,8 +139,11 @@ def test_ask_endpoint_rate_limit_surfaces_429(tmp_path: Path, monkeypatch) -> No
         files={"file": ("config.json", b'{"x":1}', "application/json")},
     )
     res = client.post("/ask", json={"session_id": session_id, "question": "hi"})
-    assert res.status_code == 429
-    assert "Gemini quota/rate limit exceeded" in res.text
+    assert res.status_code == 200
+    assert res.json()["answer"] == "local fallback answer"
+    assert res.json()["response_source"] == "fresh"
+    assert res.json()["mode"] == "no-llm-fallback"
+    assert res.json()["confidence"] == "low"
 
 
 def test_ask_endpoint_defaults_to_fresh_without_cache(tmp_path: Path, monkeypatch) -> None:
@@ -171,6 +181,7 @@ def test_ask_endpoint_defaults_to_fresh_without_cache(tmp_path: Path, monkeypatc
     assert second.status_code == 200
     assert first.json()["response_source"] == "fresh"
     assert second.json()["response_source"] == "fresh"
+    assert first.json()["mode"] == "gemini"
     assert CountingAgent.calls == 2
 
 
@@ -213,4 +224,5 @@ def test_ask_endpoint_uses_cache_when_requested(tmp_path: Path, monkeypatch) -> 
     assert first.json()["response_source"] == "fresh"
     assert second.json()["response_source"] == "cached"
     assert second.json()["cached_at"] is not None
+    assert second.json()["mode"] == "gemini"
     assert CountingAgent.calls == 1

@@ -251,15 +251,56 @@ textarea {
   line-height: 1.6;
 }
 
-.reasoning-card {
-  border-color: rgba(159, 171, 199, 0.35);
+.answer-meta-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
 }
 
-.reasoning {
-  white-space: pre-wrap;
-  line-height: 1.55;
+.mode-chip {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.mode-gemini {
+  color: #9af8e8;
+  background: rgba(77, 226, 197, 0.14);
+  border: 1px solid rgba(77, 226, 197, 0.35);
+}
+
+.mode-fallback {
+  color: #ffd89a;
+  background: rgba(255, 208, 110, 0.14);
+  border: 1px solid rgba(255, 208, 110, 0.35);
+}
+
+.confidence-chip {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.trace-list {
+  display: grid;
+  gap: 8px;
+}
+
+.trace-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  background: var(--panel-strong);
+}
+
+.trace-title {
+  font-weight: 700;
+}
+
+.trace-detail {
+  margin-top: 4px;
   color: var(--muted);
-  font-size: 0.95rem;
+  font-family: "Consolas", "Menlo", monospace;
+  font-size: 0.85rem;
 }
 
 .error-card {

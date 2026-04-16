@@ -44,6 +44,8 @@ class AskResponse(BaseModel):
     response_source: Literal["fresh", "cached"]
     generated_at: str
     cached_at: str | None = None
+    mode: Literal["gemini", "no-llm-fallback"] = "gemini"
+    confidence: Literal["high", "medium", "low"] = "medium"
 
 
 def _session_dir(session_id: str) -> Path:
@@ -140,6 +142,8 @@ def ask_question(payload: AskRequest) -> AskResponse:
                 response_source="cached",
                 generated_at=cached.generated_at,
                 cached_at=cached.generated_at,
+                mode=cached.mode,
+                confidence=cached.confidence,
             )
 
     try:
@@ -150,10 +154,23 @@ def ask_question(payload: AskRequest) -> AskResponse:
     try:
         result = agent.ask(payload.question)
     except ProviderRateLimitError as exc:
-        raise HTTPException(
-            status_code=429,
-            detail=f"Gemini quota/rate limit exceeded: {exc}",
-        ) from exc
+        fallback = agent.answer_with_local_evidence(
+            payload.question,
+            reason=f"Gemini quota/rate limit issue: {exc}",
+        )
+        trace = [{"step": str(t.step), "action": t.action, "detail": t.detail} for t in fallback.trace]
+        generated_at = datetime.now(timezone.utc).isoformat()
+        response = AskResponse(
+            answer=fallback.answer,
+            trace=trace,
+            response_source="fresh",
+            generated_at=generated_at,
+            cached_at=None,
+            mode="no-llm-fallback",
+            confidence="low",
+        )
+        ASK_CACHE[cache_key] = response
+        return response
     except ProviderAuthError as exc:
         raise HTTPException(
             status_code=401,
@@ -183,6 +200,8 @@ def ask_question(payload: AskRequest) -> AskResponse:
         response_source="fresh",
         generated_at=generated_at,
         cached_at=None,
+        mode="gemini",
+        confidence="medium",
     )
     ASK_CACHE[cache_key] = response
     return response
