@@ -1,54 +1,51 @@
 ﻿# Document Agent
 
-A custom tool-calling document agent with both a Python backend and a Next.js UI.
-Users can upload files, ask natural-language questions, and get answers from an LLM-driven agent loop that decides which tools to use.
+A custom Document Agent that answers natural-language questions over uploaded files using a hand-written tool-calling agent loop.
 
-## What I Built
+## What This Includes
 
-- Custom agent loop (no LangChain/CrewAI/AutoGen/Semantic Kernel):
-  - Model decides next action
-  - App executes tool calls
-  - Tool outputs are sent back to the model
-  - Loop continues until final answer
-- Python API server for session-based uploads + questions
-- Next.js UI for:
-  - creating a session
-  - uploading files
-  - asking questions
-  - viewing answer + agent trace
-- CLI still available for terminal usage
-- Tests for tools, loop behavior, and API endpoints
+- Custom agent orchestration loop (no prebuilt agent frameworks)
+- FastAPI backend for session creation, file upload, and Q&A
+- Next.js frontend for uploading documents and asking questions
+- CLI interface for terminal-based usage
+- Tests for tools, API endpoints, and loop behavior
 
+## LLM API Used
 
-## Tech Stack
+- Provider: Gemini API (Google AI Studio)
+- Default model: `gemini-2.5-flash-lite`
 
-- Backend: Python 3.10+, FastAPI
-- LLM API: OpenAI Chat Completions API (`openai` SDK)
-- Frontend: Next.js 14 + React + TypeScript
-- Tests: pytest
+## AI Coding Tools Used
 
-## Project Structure
+- ChatGPT
+- Manual terminal testing/debugging
 
-- `src/document_agent/agent.py`: custom agent loop
-- `src/document_agent/tools.py`: tool implementations
-- `src/document_agent/server.py`: FastAPI endpoints
-- `src/document_agent/cli.py`: terminal UI
-- `web/`: Next.js UI
+## Installation
 
-## Setup
-
-1. Create and activate a Python virtual environment.
-2. Install Python dependencies:
+1. Install Python dependencies:
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-3. Set API key:
+2. Set Gemini API key using one option:
 
-place openAI-key in src/config/config.json
+- Environment variable (recommended):
 
-4. Install UI dependencies:
+```bash
+# PowerShell
+$env:GEMINI_API_KEY="your_key_here"
+```
+
+- Config file fallback in `src/config/config.json`:
+
+```json
+{
+  "gemini-key": "your_key_here"
+}
+```
+
+3. Install frontend dependencies:
 
 ```bash
 cd web
@@ -70,33 +67,20 @@ cd web
 npm run dev
 ```
 
-3. Open `http://localhost:3000`
+3. Open:
 
-Optional UI env var:
+- UI: `http://localhost:3000`
+- Backend health: `http://127.0.0.1:8000/health`
 
-```bash
-# web/.env.local
-NEXT_PUBLIC_AGENT_API_URL=http://localhost:8000
-```
-
-If omitted, UI defaults to `http://localhost:8000`.
+Note: frontend calls `/api/*` and Next.js proxies to backend `http://127.0.0.1:8000`.
 
 ## CLI (Optional)
 
 ```bash
-python -m document_agent.cli --show-trace
+python -m document_agent.cli --model gemini-2.5-flash-lite --show-trace
 ```
 
-## API Endpoints
-
-- `POST /sessions` -> create session
-- `POST /sessions/{session_id}/upload` -> upload one file
-- `GET /sessions/{session_id}/files` -> list uploaded files
-- `POST /ask` -> ask a question against that session's files
-
-## Test
-
-From repo root:
+## Tests
 
 ```bash
 pytest
@@ -104,13 +88,15 @@ pytest
 
 ## Design Decisions
 
-- Kept agent logic independent from interface layer (CLI/UI/API).
-- Used session-scoped folders (`.agent_sessions/`) to isolate user uploads.
-- Extended structured tools to support dynamic filenames so uploaded docs work with the same logic.
-- Included trace output to make agent behavior observable.
+- Agent loop is explicit and app-owned: model decides tools, app executes tools, loop continues until final response.
+- Tooling is isolated from transport/UI logic to keep architecture maintainable.
+- Session-scoped upload directories (`.agent_sessions/`) prevent cross-user file mixing.
+- Structured tools handle messy formats (CSV normalization, log scanning, nested config access).
+- Backend returns actionable provider error messages to make debugging easier.
 
-## AI Coding Tools Used
+## API Endpoints
 
-- OpenAI Codex (this implementation session)
-- Manual local testing in terminal
-- ChatGPT for code gen AI
+- `POST /sessions`
+- `POST /sessions/{session_id}/upload`
+- `GET /sessions/{session_id}/files`
+- `POST /ask`

@@ -83,7 +83,7 @@ class DocumentTools:
                 "type": "function",
                 "function": {
                     "name": "search_documents",
-                    "description": "Search for a case-insensitive text query across one or all documents.",
+                    "description": "Search INSIDE document contents for a text query across one or all documents.",
                     "parameters": {
                         "type": "object",
                         "properties": {
@@ -197,6 +197,7 @@ class DocumentTools:
         self, query: str, filename: str | None = None, max_hits: int = 8
     ) -> dict[str, Any]:
         pattern = re.compile(re.escape(query), re.IGNORECASE)
+        query_terms = [t.lower() for t in re.findall(r"[A-Za-z0-9_]+", query) if len(t) >= 2]
         targets = [self.ctx.safe_path(filename)] if filename else sorted(self.ctx.documents_dir.glob("*"))
         hits: list[dict[str, Any]] = []
         for path in targets:
@@ -206,8 +207,35 @@ class DocumentTools:
                 if pattern.search(line):
                     hits.append({"filename": path.name, "line": line_no, "text": line.strip()})
                     if len(hits) >= max_hits:
-                        return {"query": query, "hits": hits}
-        return {"query": query, "hits": hits}
+                        return {"query": query, "match_mode": "exact_substring", "hits": hits}
+
+        # Fallback: token overlap for semantic-ish matching when exact phrase does not appear.
+        scored: list[dict[str, Any]] = []
+        if query_terms:
+            for path in targets:
+                if not path.is_file():
+                    continue
+                for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+                    line_lower = line.lower()
+                    matched_terms = [t for t in query_terms if t in line_lower]
+                    if not matched_terms:
+                        continue
+                    scored.append(
+                        {
+                            "filename": path.name,
+                            "line": line_no,
+                            "text": line.strip(),
+                            "matched_terms": matched_terms,
+                            "match_score": len(set(matched_terms)),
+                        }
+                    )
+            scored.sort(key=lambda h: (-int(h["match_score"]), h["filename"], int(h["line"])))
+
+        return {
+            "query": query,
+            "match_mode": "token_overlap" if scored else "none",
+            "hits": scored[:max_hits],
+        }
 
     def analyze_sales_csv(
         self, filename: str = "sales-q1.csv", fx_eur_to_usd: float = 1.08, include_pending: bool = False

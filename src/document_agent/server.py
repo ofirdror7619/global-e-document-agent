@@ -7,11 +7,16 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from openai import APIConnectionError, APIError, APIStatusError, AuthenticationError, RateLimitError
 from pydantic import BaseModel, Field
 
 from .agent import DocumentAgent
-from .llm import OpenAIChatLLM
+from .llm import (
+    GeminiChatLLM,
+    ProviderAPIError,
+    ProviderAuthError,
+    ProviderConnectionError,
+    ProviderRateLimitError,
+)
 
 SESSIONS_ROOT = Path(".agent_sessions")
 SESSIONS_ROOT.mkdir(parents=True, exist_ok=True)
@@ -24,7 +29,7 @@ class CreateSessionResponse(BaseModel):
 class AskRequest(BaseModel):
     session_id: str = Field(min_length=1)
     question: str = Field(min_length=1)
-    model: str = "gpt-4.1-mini"
+    model: str = "gemini-2.5-flash-lite"
 
 
 class AskResponse(BaseModel):
@@ -102,36 +107,31 @@ def ask_question(payload: AskRequest) -> AskResponse:
         raise HTTPException(status_code=400, detail="Upload at least one document first")
 
     try:
-        llm = OpenAIChatLLM(model=payload.model)
+        llm = GeminiChatLLM(model=payload.model)
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     agent = DocumentAgent(llm=llm, documents_dir=path)
     try:
         result = agent.ask(payload.question)
-    except RateLimitError as exc:
+    except ProviderRateLimitError as exc:
         raise HTTPException(
             status_code=429,
-            detail=f"OpenAI quota/rate limit issue: {exc}",
+            detail=f"Gemini quota/rate limit issue: {exc}",
         ) from exc
-    except AuthenticationError as exc:
+    except ProviderAuthError as exc:
         raise HTTPException(
             status_code=401,
-            detail=f"OpenAI authentication failed: {exc}",
+            detail=f"Gemini authentication failed: {exc}",
         ) from exc
-    except APIConnectionError as exc:
+    except ProviderConnectionError as exc:
         raise HTTPException(
             status_code=503,
-            detail=f"OpenAI connection error: {exc}",
+            detail=f"Gemini connection error: {exc}",
         ) from exc
-    except APIStatusError as exc:
+    except ProviderAPIError as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"OpenAI API status error ({exc.status_code}): {exc}",
-        ) from exc
-    except APIError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"OpenAI API error: {exc}",
+            detail=f"Gemini API error: {exc}",
         ) from exc
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(

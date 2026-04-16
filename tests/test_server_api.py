@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -44,7 +44,7 @@ def test_ask_endpoint_with_mocked_agent(tmp_path: Path, monkeypatch) -> None:
                 trace=[AgentTraceStep(step=1, action="final_answer", detail="mock")],
             )
 
-    monkeypatch.setattr(server, "OpenAIChatLLM", FakeLLM)
+    monkeypatch.setattr(server, "GeminiChatLLM", FakeLLM)
     monkeypatch.setattr(server, "DocumentAgent", FakeAgent)
     client = TestClient(server.app)
 
@@ -88,7 +88,7 @@ def test_ask_endpoint_surfaces_agent_error(tmp_path: Path, monkeypatch) -> None:
             _ = question
             raise RuntimeError("boom")
 
-    monkeypatch.setattr(server, "OpenAIChatLLM", FakeLLM)
+    monkeypatch.setattr(server, "GeminiChatLLM", FakeLLM)
     monkeypatch.setattr(server, "DocumentAgent", BrokenAgent)
     client = TestClient(server.app)
     session_id = client.post("/sessions").json()["session_id"]

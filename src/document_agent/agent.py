@@ -12,6 +12,12 @@ from .tools import DocumentTools
 SYSTEM_PROMPT = """You are a document analysis agent.
 You can call tools to inspect files and compute structured insights.
 Use tools whenever you need evidence. You may call multiple tools across multiple steps.
+Do not conclude "not found" after a single failed exact search. If a search returns no exact hits, try broader queries,
+token-level search behavior, or read likely documents directly before concluding absence.
+Important:
+- `list_documents` only tells you what files exist; it does not answer content questions.
+- For content questions, search inside files and/or read file content before answering.
+- For analytical questions, use the relevant analysis tools and connect evidence across files.
 When ready, provide:
 1) a concise answer
 2) brief evidence bullets with file names/line hints when possible
@@ -98,4 +104,3 @@ class DocumentAgent:
             "Please narrow the question or ask me to continue."
         )
         return AgentResult(answer=fallback, trace=trace)
-

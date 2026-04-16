@@ -1,5 +1,4 @@
 from .agent import DocumentAgent, AgentResult
-from .llm import OpenAIChatLLM
+from .llm import GeminiChatLLM
 
-__all__ = ["DocumentAgent", "AgentResult", "OpenAIChatLLM"]
-
+__all__ = ["DocumentAgent", "AgentResult", "GeminiChatLLM"]

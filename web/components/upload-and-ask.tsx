@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useMemo, useState } from "react";
 
@@ -93,7 +93,12 @@ export function UploadAndAsk() {
   return (
     <>
       <section className="card">
-        <h3>1. Session</h3>
+        <div className="card-head">
+          <h3>1. Session</h3>
+          <span className={`status-chip ${sessionId ? "status-ready" : "status-empty"}`}>
+            {sessionId ? "Ready" : "Waiting"}
+          </span>
+        </div>
         <div className="row">
           <button onClick={createSession} disabled={busy}>Create Session</button>
           <div className="muted">{sessionId ? `Session: ${sessionId}` : "No session yet"}</div>
@@ -103,10 +108,10 @@ export function UploadAndAsk() {
       <section className="card">
         <h3>2. Upload Files</h3>
         <input type="file" multiple onChange={(e) => setFiles(e.target.files)} />
-        <div style={{ marginTop: 10 }}>
+        <div className="stack-row">
           <button onClick={uploadFiles} disabled={!canUpload || busy}>Upload</button>
         </div>
-        <div style={{ marginTop: 8 }}>
+        <div className="stack-row">
           {uploaded.map((name, idx) => (
             <span key={`${name}-${idx}`} className="badge">{name}</span>
           ))}
@@ -120,20 +125,23 @@ export function UploadAndAsk() {
           onChange={(e) => setQuestion(e.target.value)}
           placeholder="Example: Did anyone mention Q1 sales in emails, and how does it compare to CSV?"
         />
-        <div style={{ marginTop: 10 }}>
-          <button onClick={askQuestion} disabled={!canAsk || busy}>Ask Agent</button>
+        <div className="stack-row">
+          <button onClick={askQuestion} disabled={!canAsk || busy}>
+            {busy && <span className="swirl-icon swirl-busy" aria-hidden />}
+            Ask Agent
+          </button>
         </div>
       </section>
 
       {!!error && (
-        <section className="card">
-          <strong>Error:</strong>
+        <section className="card error-card">
+          <strong>Error</strong>
           <div className="muted">{error}</div>
         </section>
       )}
 
       {!!answer && (
-        <section className="card">
+        <section className="card answer-card">
           <h3>Answer</h3>
           <div className="answer">{answer}</div>
         </section>

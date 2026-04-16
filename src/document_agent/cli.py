@@ -4,12 +4,12 @@ import argparse
 from pathlib import Path
 
 from .agent import DocumentAgent
-from .llm import OpenAIChatLLM
+from .llm import GeminiChatLLM
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Document Agent CLI")
-    parser.add_argument("--model", default="gpt-4.1-mini", help="OpenAI model name")
+    parser.add_argument("--model", default="gemini-2.5-flash-lite", help="Gemini model name")
     parser.add_argument(
         "--documents-dir",
         default="documents",
@@ -24,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def run_repl(model: str, documents_dir: str, show_trace: bool) -> None:
-    llm = OpenAIChatLLM(model=model)
+    llm = GeminiChatLLM(model=model)
     agent = DocumentAgent(llm=llm, documents_dir=Path(documents_dir))
 
     print("Document Agent ready. Type your question, or 'exit' to quit.")
@@ -53,4 +53,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

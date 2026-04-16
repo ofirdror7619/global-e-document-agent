@@ -1,16 +1,24 @@
-from document_agent.llm import OpenAIChatLLM
+﻿from document_agent.llm import GeminiChatLLM
 
 
 def test_llm_uses_config_fallback_key(monkeypatch) -> None:
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     captured: dict[str, str] = {}
 
-    class FakeClient:
-        def __init__(self, api_key: str) -> None:
-            captured["api_key"] = api_key
+    class FakeSession:
+        def post(self, *args, **kwargs):
+            _ = (args, kwargs)
+            raise AssertionError("post should not be called in this test")
 
-    monkeypatch.setattr("document_agent.llm.OpenAI", FakeClient)
-    OpenAIChatLLM(model="gpt-4.1-mini")
+    monkeypatch.setattr(
+        GeminiChatLLM,
+        "_read_api_key_from_config",
+        staticmethod(lambda: "AIzaFakeConfigKey123"),
+    )
+    monkeypatch.setattr("document_agent.llm.requests.Session", lambda: FakeSession())
 
-    assert captured["api_key"].startswith("sk-")
+    llm = GeminiChatLLM(model="gemini-2.5-flash-lite")
+    captured["api_key"] = llm._api_key
 
+    assert captured["api_key"].startswith("AIza")

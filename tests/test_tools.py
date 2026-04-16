@@ -20,3 +20,9 @@ def test_read_config_value_nested_path() -> None:
     out = tools.read_config_value("database.primary.pool.max")
     assert out["value"] == 50
 
+
+def test_search_documents_falls_back_to_token_overlap() -> None:
+    tools = DocumentTools(documents_dir=Path("documents"))
+    out = tools.search_documents("Q1 sales numbers", filename="emails.txt", max_hits=5)
+    assert out["match_mode"] in {"exact_substring", "token_overlap"}
+    assert len(out["hits"]) > 0
